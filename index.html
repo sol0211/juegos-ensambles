@@ -1,0 +1,946 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Gran Premio del Bosque</title>
+<!--
+  =====================================================================
+  VIDEOJUEGO DE REPASO · GRAN PREMIO DEL BOSQUE
+  Métodos de ensamble: voto, weak learners, bagging y random forest
+  Archivo único (HTML + CSS + JS + canvas + Web Audio).
+  Listo para Google Sites: Insertar › Código embebido › pegar todo.
+  Karts y pilotos originales. No usa arte, nombres ni marcas de Nintendo.
+
+  REGLAS
+  - Un solo intento por apellido. Se bloquean variantes: tildes, mayúsculas,
+    números, símbolos, espacios, letras repetidas, una letra de diferencia
+    y apellidos que empiezan igual (Sánchez, sanchez1, SANCHEZZ, Sanches,
+    Sánchez Pérez).
+  - El intento queda registrado al empezar: recargar la página no da otro.
+  - Cada respuesta equivocada descuenta CONFIG.DESCUENTO_ERROR puntos.
+
+  REGISTRO
+  - Sin configurar nada, el registro se guarda en el navegador (localStorage).
+    Eso bloquea el segundo intento en el mismo equipo y navegador.
+  - Para bloquear entre equipos distintos y recibir los resultados en una
+    hoja de Google, pegue en CONFIG.ENDPOINT la URL del Apps Script
+    (archivo apps_script_registro.gs).
+  - Panel docente: botón «Docente» en la portada, con CONFIG.PIN_DOCENTE.
+  =====================================================================
+-->
+<link href="https://fonts.googleapis.com/css2?family=Fredoka:wght@500;600;700&family=Nunito:wght@400;600;700;800&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #0b1020; --panel: #131b36; --panel2: #1b2550; --line: #2a3770;
+    --txt: #e8ecff; --mut: #9aa6d6;
+    --cyan: #8FBC6A; --violet: #70AD47; --green: #A9D18E; --red: #fb7185; --yellow: #fbbf24; --pink: #C5E0B4;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; min-height: 100%; }
+  body {
+    font-family: 'Nunito', system-ui, sans-serif; color: var(--txt);
+    background:
+      radial-gradient(1200px 600px at 10% -10%, rgba(112,173,71,.25), transparent 60%),
+      radial-gradient(900px 500px at 110% 10%, rgba(143,188,106,.18), transparent 60%),
+      var(--bg);
+    overflow-x: hidden;
+  }
+  body::before {
+    content: ''; position: fixed; inset: 0; pointer-events: none; z-index: 0;
+    background-image: linear-gradient(rgba(255,255,255,.035) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,.035) 1px, transparent 1px);
+    background-size: 32px 32px;
+  }
+  .fred { font-family: 'Fredoka', 'Nunito', sans-serif; }
+  #app { position: relative; z-index: 1; max-width: 1000px; margin: 0 auto; padding: 16px; min-height: 100vh; display: flex; flex-direction: column; }
+  .screen { display: none; flex: 1; flex-direction: column; animation: pop .35s ease; }
+  .screen.active { display: flex; }
+  @keyframes pop { from { opacity: 0; transform: translateY(14px) scale(.98); } to { opacity: 1; transform: none; } }
+  .panel { background: linear-gradient(180deg, var(--panel2), var(--panel)); border: 1px solid var(--line); border-radius: 22px; box-shadow: 0 10px 30px rgba(0,0,0,.35); }
+  .btn { font-family: 'Fredoka', sans-serif; font-weight: 600; border: 0; border-radius: 16px; cursor: pointer; transition: transform .1s, box-shadow .1s, filter .15s; color: #0b1020; }
+  .btn:hover { filter: brightness(1.08); }
+  .btn:active { transform: translateY(3px); }
+  .btn:focus-visible, .opt:focus-visible, .avatar:focus-visible, input:focus-visible, #view:focus-visible { outline: 3px solid var(--yellow); outline-offset: 3px; }
+  .btn-main { background: linear-gradient(90deg, var(--cyan), var(--violet)); box-shadow: 0 6px 0 #385723; font-size: 1.35rem; padding: 14px 28px; }
+  .btn-main:active { box-shadow: 0 3px 0 #385723; }
+  .btn-sec { background: #2a3770; color: var(--txt); box-shadow: 0 5px 0 #1a234a; padding: 10px 18px; font-size: 1rem; }
+  .btn-sec:active { box-shadow: 0 2px 0 #1a234a; }
+  .btn-red { background: #e0435c; color: #fff; box-shadow: 0 5px 0 #8f1f33; padding: 8px 14px; font-size: .95rem; }
+  .btn[disabled] { opacity: .45; cursor: not-allowed; }
+  .title { font-size: clamp(2rem, 6vw, 3.4rem); line-height: 1.05; background: linear-gradient(90deg, var(--cyan), var(--violet), var(--pink)); -webkit-background-clip: text; background-clip: text; color: transparent; }
+  .avatars { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; }
+  .avatar { background: #1a234a; border: 2px solid var(--line); border-radius: 18px; padding: 10px 0; cursor: pointer; }
+  .avatar[aria-pressed="true"] { border-color: var(--cyan); background: rgba(143,188,106,.15); box-shadow: 0 0 0 4px rgba(143,188,106,.18); }
+  .avatar canvas { display: block; margin: 0 auto; }
+  .inp { width: 100%; font-size: 1.15rem; padding: 12px 16px; border-radius: 14px; border: 2px solid var(--line); background: #0f1630; color: var(--txt); font-family: 'Nunito', sans-serif; font-weight: 700; }
+  .two { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  @media (max-width: 640px) { .two { grid-template-columns: 1fr; } }
+  .chip { display: inline-flex; align-items: center; gap: 6px; padding: 5px 12px; border-radius: 999px; font-weight: 800; font-size: .85rem; background: #1a234a; border: 1px solid var(--line); }
+  .hud { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; justify-content: space-between; }
+  .opts { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  @media (max-width: 640px) { .opts { grid-template-columns: 1fr; } }
+  .opt { position: relative; display: flex; align-items: center; gap: 12px; text-align: left; border: 0; border-radius: 18px; padding: 14px 26px 14px 14px; min-height: 72px; color: #fff; font-family: 'Nunito', sans-serif; font-weight: 800; font-size: 1rem; cursor: pointer; box-shadow: 0 6px 0 rgba(0,0,0,.35); }
+  .opt:hover:not([disabled]) { transform: translateY(-2px); filter: brightness(1.08); }
+  .opt .key { position: absolute; top: 6px; right: 10px; font-size: .75rem; opacity: .8; }
+  .o0 { background: #e0435c; } .o1 { background: #2f6fe4; } .o2 { background: #b98a00; } .o3 { background: #1f9d55; }
+  .opt[disabled] { cursor: default; }
+  .opt.dim { opacity: .28; }
+  .opt.right { outline: 4px solid #fff; }
+  .opt.wrong { animation: shake .4s; filter: grayscale(.55); }
+  @keyframes shake { 0%,100% { transform: translateX(0); } 25% { transform: translateX(-8px); } 75% { transform: translateX(8px); } }
+  #view { width: 100%; height: auto; display: block; border-radius: 18px; background: #4f8a3a; touch-action: none; }
+  .modal { position: fixed; inset: 0; z-index: 30; display: none; align-items: center; justify-content: center; padding: 16px; background: rgba(5,8,20,.72); }
+  .modal.show { display: flex; }
+  .modal .panel { max-width: 740px; width: 100%; max-height: calc(100vh - 32px); overflow: auto; animation: pop .25s ease; }
+  .stat { background: #0f1630; border: 1px solid var(--line); border-radius: 16px; padding: 12px; text-align: center; }
+  .stat b { display: block; font-family: 'Fredoka', sans-serif; font-size: 1.5rem; color: var(--cyan); }
+  .stat.bad b { color: var(--red); }
+  .muted { color: var(--mut); }
+  .review li { border-left: 4px solid var(--red); background: #0f1630; border-radius: 10px; padding: 10px 12px; margin-top: 8px; list-style: none; }
+  .rules { margin: 0; padding: 0; list-style: none; display: grid; gap: 6px; }
+  .rules li { background: #0f1630; border: 1px solid var(--line); border-radius: 12px; padding: 8px 12px; }
+  .rules b { color: var(--yellow); }
+  .pad { display: none; gap: 10px; margin-top: 10px; }
+  .pad button { flex: 1; font-family: 'Fredoka', sans-serif; font-size: 1.5rem; border: 0; border-radius: 16px; padding: 16px 0; background: #2a3770; color: white; box-shadow: 0 5px 0 #1a234a; }
+  @media (pointer: coarse) { .pad { display: flex; } }
+  #toast { position: fixed; left: 50%; bottom: 18px; transform: translateX(-50%); z-index: 50; background: var(--green); color: #06281d; font-weight: 800; padding: 10px 16px; border-radius: 12px; display: none; }
+  table.reg { width: 100%; border-collapse: collapse; font-size: .9rem; margin-top: 10px; }
+  table.reg th, table.reg td { border-bottom: 1px solid var(--line); padding: 6px 4px; text-align: left; }
+  table.reg th { color: var(--yellow); font-family: 'Fredoka', sans-serif; font-weight: 600; }
+</style>
+</head>
+<body>
+<div id="app">
+
+  <!-- PORTADA -->
+  <section id="sStart" class="screen active" aria-labelledby="tStart">
+    <div class="panel" style="padding:26px; margin:auto 0;">
+      <div style="display:flex; justify-content:space-between; gap:10px; flex-wrap:wrap; margin:0 0 12px;">
+        <a href="index.html" class="btn btn-sec" style="display:inline-block; text-decoration:none;">Volver a la guía</a>
+        <button id="btnTeacher" class="btn btn-sec" type="button">Docente</button>
+      </div>
+      <p class="chip" style="color:var(--cyan)">Juego de repaso · Métodos de ensamble</p>
+      <h1 id="tStart" class="fred title" style="margin:14px 0 6px;">Gran Premio del Bosque</h1>
+      <p class="muted" style="font-size:1.08rem; margin:0 0 18px;">Maneja tu kart por cuatro circuitos. En cada arco con signo de pregunta aparece una pregunta sobre ensambles, bagging y random forest. Si aciertas, ganas puntos y un turbo para pasar a los rivales. Si fallas, pierdes puntos y el kart da un trompo.</p>
+
+      <p class="fred" style="font-size:1.1rem; margin:0 0 8px;">1 · Elige el color de tu kart</p>
+      <div class="avatars" id="avatars" role="group" aria-label="Color del kart"></div>
+
+      <p class="fred" style="font-size:1.1rem; margin:18px 0 8px;">2 · Tus datos</p>
+      <div class="two">
+        <div>
+          <label for="nameIn" class="muted" style="display:block; font-weight:800; margin-bottom:4px;">Nombre</label>
+          <input id="nameIn" class="inp" maxlength="24" placeholder="Ej.: Valeria" autocomplete="off">
+        </div>
+        <div>
+          <label for="lastIn" class="muted" style="display:block; font-weight:800; margin-bottom:4px;">Apellido</label>
+          <input id="lastIn" class="inp" maxlength="30" placeholder="Ej.: Sánchez" autocomplete="off">
+        </div>
+      </div>
+      <p id="nameErr" role="alert" style="color:var(--red); font-weight:800; min-height:22px; margin:8px 0 0;"></p>
+
+      <p class="fred" style="font-size:1.1rem; margin:10px 0 8px;">3 · Reglas</p>
+      <ul class="rules">
+        <li><b>Un solo intento por apellido.</b> El intento cuenta desde que arrancas: recargar la página no da otro.</li>
+        <li><b>Cada error descuenta <span id="rPen"></span> puntos.</b> Cada acierto suma <span id="rOk"></span> y da turbo.</li>
+        <li><b>Bono por puesto</b> al cruzar la meta de cada circuito: <span id="rBono"></span>.</li>
+        <li>Los conos y las manchas de aceite te hacen girar, pero no descuentan puntos.</li>
+      </ul>
+
+      <button id="btnStart" class="btn btn-main" style="width:100%; margin-top:18px;">Empezar la carrera</button>
+      <p class="muted" style="text-align:center; font-size:.9rem; margin:12px 0 0;">Flechas o A D para girar · 1 a 4 para responder · Enter para continuar</p>
+    </div>
+  </section>
+
+  <!-- TARJETA DE CIRCUITO -->
+  <section id="sCard" class="screen" aria-live="polite">
+    <div class="panel" style="padding:30px; margin:auto 0; text-align:center;">
+      <p id="cvNum" class="chip" style="margin-top:8px; color:var(--yellow)"></p>
+      <h2 id="cvName" class="fred title" style="margin:12px 0 8px;"></h2>
+      <p id="cvDesc" class="muted" style="font-size:1.1rem; max-width:560px; margin:0 auto 10px;"></p>
+      <p id="cvPrev" class="fred" style="font-size:1.1rem; color:var(--green); min-height:1.4em; margin:0 0 18px;"></p>
+      <button id="btnGo" class="btn btn-main">A la parrilla</button>
+    </div>
+  </section>
+
+  <!-- CARRERA -->
+  <section id="sPlay" class="screen">
+    <div class="panel" style="padding:10px 12px;">
+      <div class="hud">
+        <span class="chip"><span id="hName"></span></span>
+        <span id="hWorld" class="chip" style="color:var(--violet)"></span>
+        <span class="chip" style="color:var(--cyan)">Puntos <span id="hScore">0</span></span>
+        <span class="chip" style="color:var(--green)">Aciertos <span id="hHits">0</span></span>
+        <span class="chip" style="color:var(--red)">Errores <span id="hErr">0</span></span>
+        <button id="btnMute" class="btn btn-sec" style="padding:6px 12px;" aria-label="Silenciar">Sonido</button>
+      </div>
+    </div>
+    <div class="panel" style="padding:10px; margin-top:10px;">
+      <canvas id="view" width="960" height="540" tabindex="0" aria-label="Pista de carreras vista desde arriba. Tu kart avanza solo; gira a la izquierda o a la derecha para seguir la pista."></canvas>
+      <div class="pad" aria-hidden="true">
+        <button id="bLeft" type="button">◀</button>
+        <button id="bRight" type="button">▶</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- FINAL -->
+  <section id="sEnd" class="screen" aria-labelledby="eTitle">
+    <div class="panel" style="padding:26px; margin:auto 0; text-align:center;">
+      <p id="eTop" class="chip" style="color:var(--yellow)">META CUMPLIDA</p>
+      <h2 id="eTitle" class="fred title" style="margin:12px 0 8px;"></h2>
+      <p id="eSub" class="fred" style="font-size:1.15rem; margin:0 0 16px;"></p>
+      <div style="display:grid; grid-template-columns:repeat(auto-fit,minmax(120px,1fr)); gap:10px;">
+        <div class="stat"><b id="eScore"></b><span class="muted">Puntos finales</span></div>
+        <div class="stat"><b id="eHits"></b><span class="muted">Aciertos</span></div>
+        <div class="stat bad"><b id="eErr"></b><span class="muted">Errores</span></div>
+        <div class="stat bad"><b id="ePen"></b><span class="muted">Descontado</span></div>
+        <div class="stat"><b id="ePlaces"></b><span class="muted">Puestos</span></div>
+      </div>
+      <div id="eReview" style="text-align:left; margin-top:18px;"></div>
+      <p class="muted" style="margin:18px 0 0;">Tu intento quedó registrado. Solo se permite una partida por apellido.</p>
+      <div style="display:flex; flex-wrap:wrap; gap:12px; justify-content:center; margin-top:14px;">
+        <button id="btnCopy" class="btn btn-main">Copiar resultado</button>
+      </div>
+    </div>
+  </section>
+</div>
+
+<!-- PREGUNTA -->
+<div id="modal" class="modal" role="dialog" aria-modal="true" aria-labelledby="mHead">
+  <div class="panel" style="padding:22px;">
+    <p id="mKicker" class="chip" style="color:var(--yellow)"></p>
+    <h3 id="mHead" class="fred" style="font-size:1.35rem; line-height:1.25; margin:12px 0;"></h3>
+    <div id="opts" class="opts"></div>
+    <div id="mWhyBox" style="display:none; margin-top:14px; background:#0f1630; border:1px solid var(--line); border-radius:16px; padding:14px;">
+      <p id="mWhyTitle" class="fred" style="margin:0;"></p>
+      <p id="mWhy" style="margin:6px 0 0; line-height:1.45;"></p>
+    </div>
+    <button id="btnNext" class="btn btn-main" style="width:100%; margin-top:16px; display:none;">Seguir corriendo</button>
+  </div>
+</div>
+
+<!-- PANEL DOCENTE -->
+<div id="tModal" class="modal" role="dialog" aria-modal="true" aria-labelledby="tHead">
+  <div class="panel" style="padding:22px;">
+    <h3 id="tHead" class="fred" style="font-size:1.35rem; margin:0 0 10px;">Panel docente</h3>
+    <div id="tLock">
+      <label for="pinIn" class="muted" style="display:block; font-weight:800; margin-bottom:4px;">PIN</label>
+      <input id="pinIn" class="inp" type="password" autocomplete="off" style="max-width:220px;">
+      <p id="pinErr" style="color:var(--red); font-weight:800; min-height:22px; margin:6px 0;"></p>
+      <div style="display:flex; gap:10px;">
+        <button id="btnPin" class="btn btn-main" style="font-size:1rem; padding:10px 18px;">Entrar</button>
+        <button class="btn btn-sec tClose" type="button">Cerrar</button>
+      </div>
+    </div>
+    <div id="tBody" style="display:none;">
+      <p id="tInfo" class="muted" style="margin:0;"></p>
+      <div id="tTable"></div>
+      <div style="display:flex; flex-wrap:wrap; gap:10px; margin-top:14px;">
+        <button id="btnCsv" class="btn btn-sec" type="button">Descargar CSV</button>
+        <button id="btnWipe" class="btn btn-red" type="button">Borrar todo el registro de este equipo</button>
+        <button class="btn btn-sec tClose" type="button">Cerrar</button>
+      </div>
+    </div>
+  </div>
+</div>
+<div id="toast" role="status">Resultado copiado</div>
+
+<script>
+/* =====================================================================
+   CONFIGURACIÓN (puede editarla el docente)
+   ===================================================================== */
+const CONFIG = {
+  PUNTOS_ACIERTO: 150,
+  DESCUENTO_ERROR: 50,
+  PUNTOS_MONEDA: 10,
+  BONO_PUESTO: [300, 200, 100, 0],   // 1.º, 2.º, 3.º y 4.º puesto
+  PIN_DOCENTE: '2026',
+  ENDPOINT: ''                        // URL del Apps Script (opcional)
+};
+
+const $ = s => document.querySelector(s);
+
+/* =====================================================================
+   CONTENIDO
+   ===================================================================== */
+const WORLDS = [
+  { name: 'Circuito 1 · Ensambles', desc: 'El árbol inestable, el voto de la mayoría y el piso que pone la correlación ρ.' },
+  { name: 'Circuito 2 · Weak learners', desc: 'Mejor que el azar, el stump y tres formas de combinar opiniones.' },
+  { name: 'Circuito 3 · Bagging', desc: 'La muestra bootstrap, el error out-of-bag y cuándo ayuda promediar.' },
+  { name: 'Circuito 4 · Random forest', desc: 'El sorteo de variables, el Gini del corte, las perillas y la importancia.' }
+];
+
+const Q = [
+  // ---------- Circuito 1 ----------
+  { q: 'Un árbol sin podar acierta mucho en entrenamiento, pero cambia si quito unas filas. ¿Qué propone un ensamble?',
+    o: ['Entrenar muchos árboles con muestras distintas y quedarse con su voto.', 'Podar el árbol hasta la raíz para que nunca vuelva a cambiar de forma.', 'Elegir el árbol que mejor acierta en entrenamiento y descartar el resto.', 'Cambiar Gini por entropía, porque la entropía hace al árbol más estable.'],
+    a: 0,
+    hint: 'No cambiamos la pregunta del árbol. Cambiamos cuántos opinan y qué filas ve cada uno.',
+    why: 'Un ensamble junta varios modelos. La predicción es el voto de todos, no el árbol que más nos guste.' },
+  { q: 'Tres modelos independientes aciertan cada uno con 0.70. Gana la mayoría. ¿Con qué probabilidad acierta el voto?',
+    o: ['0.784: 0.343 de que acierten los tres, más 0.441 de que acierten exactamente dos.', '0.700: el voto nunca supera al modelo individual, porque los tres valen lo mismo.', '0.490: se multiplica 0.70 por 0.70, porque basta con que acierten dos de los tres.', '0.973: se resta de 1 la probabilidad de que fallen los tres, que es 0.3 al cubo.'],
+    a: 0,
+    hint: 'El voto acierta si aciertan 2 o 3. El caso de 2 se cuenta 3 veces, porque puede fallar cualquiera.',
+    why: '0.7³ = 0.343 y 3 × 0.7² × 0.3 = 0.441. Sumados dan 0.784: de 70% a 78.4% sin mejorar ningún modelo.' },
+  { q: '¿Qué condición necesita cada modelo para que sumar votantes haga subir el acierto del voto?',
+    o: ['Acertar más de la mitad de las veces y equivocarse en casos distintos.', 'Acertar exactamente la mitad, para que los errores queden compensados.', 'Ser idéntico a los demás, para que el voto salga siempre por unanimidad.', 'Tener muchas variables, aunque acierte menos que lanzar una moneda.'],
+    a: 0,
+    hint: 'Con 60% por árbol: 1 árbol da 60%, 3 árboles dan 64.8% y 11 árboles dan 75.3%.',
+    why: 'Si cada uno supera 0.5 y sus errores son independientes, más votantes suben el acierto. Por debajo de 0.5, el voto empeora.' },
+  { q: 'Var(promedio) = ρσ² + (1 − ρ)σ²/B. Si ρ = 1, ¿qué pasa al pasar de 1 a 500 modelos?',
+    o: ['Nada: la varianza sigue en σ², porque todos cometen los mismos errores.', 'La varianza cae a σ²/500, porque cada modelo nuevo divide el error.', 'La varianza llega a cero, porque 500 modelos cancelan todo el ruido.', 'La varianza sube a 500σ², porque los errores de los modelos se suman.'],
+    a: 0,
+    hint: 'Mira el primer término: ρσ² no depende de B.',
+    why: 'Con ρ = 1 el segundo término desaparece y queda σ². 500 copias valen como un modelo. Bajar ρ mueve el piso; sumar árboles, no.' },
+  // ---------- Circuito 2 ----------
+  { q: '¿Qué se le exige a un weak learner en un problema de dos clases balanceadas?',
+    o: ['Que se equivoque menos del 50%, aunque sea apenas mejor que el azar.', 'Que se equivoque menos del 5%, porque si no el ensamble no lo corrige.', 'Que use todas las variables en cada corte, sin dejar ninguna fuera.', 'Que sea un árbol profundo y sin podar, con una hoja por cliente.'],
+    a: 0,
+    hint: 'El listón es bajo a propósito. Lo difícil es combinar las piezas.',
+    why: 'Un weak learner solo tiene que superar al azar. Schapire (1990) mostró que, bien combinados, forman un strong learner: el origen de boosting.' },
+  { q: 'Un stump pregunta solo «¿ingreso alto?» y acierta 6 de 10 clientes balanceados. ¿Qué es?',
+    o: ['Un weak learner: mejor que una moneda, pero lejos de ser el modelo final.', 'Un strong learner: con 60% ya puede entregarse al negocio sin más ajuste.', 'Un modelo inútil: con menos de 70% no sirve para ningún tipo de ensamble.', 'Un árbol sobreajustado: una sola pregunta memoriza a los diez clientes.'],
+    a: 0,
+    hint: 'Adivinando al azar acertaría cerca de 5 de 10.',
+    why: 'Un árbol de una sola pregunta es el ejemplo clásico de weak learner, y es la pieza que usa boosting.' },
+  { q: 'Tres árboles de regresión predicen el gasto de un cliente: 1 200, 900 y 1 500. ¿Qué dice el ensamble?',
+    o: ['1 200: en regresión se promedian los números de todos los árboles.', '1 500: en regresión gana el árbol que dio el valor más alto de los tres.', '900: el ensamble se queda con el valor más bajo para ser prudente.', '3 600: el ensamble suma lo que predijo cada árbol del comité.'],
+    a: 0,
+    hint: 'El voto es para clases. Para números se usa otra regla.',
+    why: '(1 200 + 900 + 1 500) / 3 = 1 200. En clasificación se vota, en regresión se promedia, y con pesos no todas las opiniones valen igual.' },
+  { q: 'h1 y h2 aciertan 3 de 5 y fallan juntos en el cliente 5. h3 acierta 4 de 5. ¿Qué logra el voto de los tres?',
+    o: ['4 de 5, igual que h3 solo: h1 y h2 fallan juntos y arrastran al comité.', '5 de 5, porque h3 acierta más y su voto pesa más que los otros dos.', '3 de 5, porque el voto siempre baja al nivel de los modelos más débiles.', '2 de 5, porque si dos modelos fallan juntos, el voto falla en todo.'],
+    a: 0,
+    hint: 'En el cliente 5, dos de los tres votos están equivocados.',
+    why: 'El comité no supera a h3 porque h1 y h2 se parecen: fallan en el mismo cliente. Si los errores coinciden, el voto no corrige.' },
+  // ---------- Circuito 3 ----------
+  { q: 'Con n grande, ¿qué parte de las filas originales entra en una muestra bootstrap?',
+    o: ['Cerca del 63%: el 37% restante queda fuera de bolsa para ese árbol.', 'El 100%: el bootstrap toma todas las filas, solo que en otro orden.', 'Cerca del 50%: cada fila entra o no entra con la misma probabilidad.', 'Cerca del 37%: el 63% restante queda reservado para la prueba final.'],
+    a: 0,
+    hint: 'La probabilidad de que una fila nunca salga es (1 − 1/n)ⁿ, que se acerca a 1/e.',
+    why: '1/e ≈ 0.368 queda fuera y entra cerca del 63.2%. Con unas decenas de filas el número ya es muy parecido.' },
+  { q: '¿Cómo se calcula el error out-of-bag (OOB) de un bosque?',
+    o: ['A cada cliente lo votan solo los árboles que no lo vieron, y se cuentan los fallos.', 'Se aparta un 30% de los datos antes de entrenar y se mide el error en esa parte.', 'Se mide el error de entrenamiento de cada árbol y luego se promedian esos errores.', 'Se vuelve a entrenar el bosque con otra semilla y se compara con el primero.'],
+    a: 0,
+    hint: 'Cada árbol deja fuera cerca del 37% de las filas. Úsalas.',
+    why: 'El OOB evalúa al bosque sin apartar datos. Para comparar el bosque contra otro algoritmo, conviene usar el mismo conjunto de prueba.' },
+  { q: '¿Con qué modelo base ayuda más el bagging?',
+    o: ['Con un árbol profundo: poco sesgo y mucha varianza, que el voto calma.', 'Con una regresión lineal: es estable, así que promediar la mejora mucho.', 'Con un árbol muy podado: tiene tan poco sesgo que el voto lo perfecciona.', 'Con un stump: el bagging le corrige el sesgo de hacer una sola pregunta.'],
+    a: 0,
+    hint: 'Bagging baja varianza. No corrige un modelo que de entrada es demasiado simple.',
+    why: 'El árbol profundo cambia mucho con la muestra. El voto conserva la señal y aplaca el ruido. Con un modelo estable, promediar casi no cambia nada.' },
+  { q: '¿Qué busca bajar cada técnica de ensamble?',
+    o: ['Bagging y random forest bajan la varianza; boosting baja el sesgo.', 'Bagging baja el sesgo; random forest y boosting bajan la varianza.', 'Las tres bajan el sesgo, porque usan árboles sin podar en paralelo.', 'Boosting baja la varianza; bagging y random forest bajan el sesgo.'],
+    a: 0,
+    hint: 'Bagging y random forest calman modelos nerviosos. Boosting le da fuerza a modelos débiles.',
+    why: 'Bagging y random forest combinan árboles profundos en paralelo. Boosting combina weak learners en secuencia, cada uno sobre lo que falló el anterior.' },
+  // ---------- Circuito 4 ----------
+  { q: '¿Qué hace random forest que el bagging de árboles no hace?',
+    o: ['En cada nodo sortea m de las p variables; los árboles se parecen menos y ρ baja.', 'Toma muestras sin reemplazo, así que cada árbol ve filas que no se repiten.', 'Poda cada árbol antes de votar, para que ninguno llegue a sobreajustarse.', 'Le da más peso a los árboles que aciertan, como hace boosting en secuencia.'],
+    a: 0,
+    hint: 'Bagging cambia las filas. Random forest cambia las filas y los candidatos a corte.',
+    why: 'Si una variable domina, en bagging casi todo árbol parte por ella. Al sortear variables, algunos nodos cortan por otras y el voto gana.' },
+  { q: 'Nodo con Gini 0.50. El sorteo dejó Historial (0.375) y Deuda (0.500). Ingreso daría 0.200, pero no salió. ¿Qué corte usa?',
+    o: ['Historial: es el mejor entre las variables sorteadas, aunque Ingreso fuera mejor.', 'Ingreso: el árbol siempre revisa todas las variables antes de decidir el corte.', 'Deuda: el árbol elige el corte con el Gini más alto, para dejar más mezcla.', 'Ninguno: si la mejor variable no sale en el sorteo, el nodo se vuelve hoja.'],
+    a: 0,
+    hint: 'El criterio es el de siempre, pero solo entre las m variables sorteadas.',
+    why: 'Gana Historial con 0.375. Otro árbol, con otro sorteo, puede cortar por Ingreso. El bosque se queda con los dos.' },
+  { q: 'En random forest, ¿qué pasa si fijamos m igual a p, el total de variables?',
+    o: ['Ya no hay sorteo de variables y el bosque se vuelve un bagging de árboles.', 'Los árboles se vuelven más distintos entre sí y la correlación ρ baja más.', 'Cada árbol pasa a ser un stump y el bosque se comporta como un boosting.', 'El bosque deja de usar bootstrap y cada árbol ve todas las filas originales.'],
+    a: 0,
+    hint: 'Recomendación de Breiman: raíz de p en clasificación y p/3 en regresión.',
+    why: 'Con m = p, todas las variables compiten en cada corte, igual que en bagging. Un m pequeño da árboles más distintos y algo más de sesgo.' },
+  { q: 'En un modelo de mora, la variable más importante por permutación es «llamadas de cobranza». ¿Qué se concluye?',
+    o: ['Que el bosque depende de ella para predecir, no que llamar cause la mora.', 'Que hay que dejar de llamar, porque las llamadas son la causa de la mora.', 'Que la variable sobra, porque una importancia alta indica sobreajuste.', 'Que el ranking por impureza siempre coincide con el de permutación.'],
+    a: 0,
+    hint: 'La importancia ordena variables para conversar con el negocio. No es un efecto causal.',
+    why: 'Al barajarla el error sube mucho: el bosque la usa. Pero las llamadas son consecuencia del atraso. Para decidir una política hace falta otro diseño.' }
+];
+
+/* =====================================================================
+   REGISTRO: un intento por apellido (y sus variantes)
+   ===================================================================== */
+const REG_KEY = 'granPremioBosque.registros.v1';
+
+// Sánchez, SANCHEZ, sanchez1, sán-chez, Sanchezz -> "sanchez"
+function normKey(s) {
+  return (s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase()
+    .replace(/[^a-z]/g, '').replace(/(.)\1+/g, '$1');
+}
+function lev(a, b) {
+  const d = Array.from({ length: a.length + 1 }, (_, i) => [i]);
+  for (let j = 1; j <= b.length; j++) d[0][j] = j;
+  for (let i = 1; i <= a.length; i++) for (let j = 1; j <= b.length; j++)
+    d[i][j] = Math.min(d[i - 1][j] + 1, d[i][j - 1] + 1, d[i - 1][j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1));
+  return d[a.length][b.length];
+}
+// Iguales, uno empieza con el otro (Sánchez / Sánchez Pérez) o una letra de diferencia (Sanchez / Sanches)
+function similar(a, b) {
+  if (a === b) return true;
+  const m = Math.min(a.length, b.length);
+  if (m >= 4 && (a.startsWith(b) || b.startsWith(a))) return true;
+  if (m >= 5 && Math.abs(a.length - b.length) <= 1 && lev(a, b) <= 1) return true;
+  return false;
+}
+function loadReg() { try { return JSON.parse(localStorage.getItem(REG_KEY)) || []; } catch (e) { return []; } }
+function saveReg(list) { try { localStorage.setItem(REG_KEY, JSON.stringify(list)); } catch (e) {} }
+function findLocal(key) { return loadReg().find(r => similar(r.key, key)); }
+
+async function remote(params) {
+  if (!CONFIG.ENDPOINT) return null;
+  try {
+    const url = CONFIG.ENDPOINT + '?' + new URLSearchParams(params).toString();
+    const r = await fetch(url, { method: 'GET' });
+    return await r.json();
+  } catch (e) { return null; }
+}
+
+/* =====================================================================
+   SONIDO
+   ===================================================================== */
+let muted = false, actx = null;
+function audio() {
+  if (!actx) { try { actx = new (window.AudioContext || window.webkitAudioContext)(); } catch (e) { actx = null; } }
+  if (actx && actx.state === 'suspended') actx.resume();
+  return actx;
+}
+function tone(freq, dur, type, when, gain, slide) {
+  const c = audio(); if (!c || muted) return;
+  const t = c.currentTime + (when || 0), o = c.createOscillator(), g = c.createGain();
+  o.type = type || 'square'; o.frequency.setValueAtTime(freq, t);
+  if (slide) o.frequency.exponentialRampToValueAtTime(slide, t + dur);
+  g.gain.setValueAtTime(0.0001, t);
+  g.gain.exponentialRampToValueAtTime(gain || 0.08, t + 0.02);
+  g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+  o.connect(g).connect(c.destination); o.start(t); o.stop(t + dur + 0.02);
+}
+const SFX = {
+  coin: () => { tone(880, 0.07, 'square', 0, 0.05); tone(1320, 0.09, 'square', 0.07, 0.04); },
+  bump: () => tone(160, 0.12, 'square', 0, 0.06, 90),
+  beep: () => tone(660, 0.15, 'square', 0, 0.07),
+  go: () => tone(990, 0.35, 'square', 0, 0.08),
+  box: () => { tone(520, 0.08, 'square', 0, 0.06); tone(780, 0.1, 'square', 0.08, 0.06); },
+  ok: () => { [523, 659, 784, 1047].forEach((f, i) => tone(f, 0.12, 'square', i * 0.07, 0.07)); },
+  bad: () => tone(240, 0.32, 'sawtooth', 0, 0.06, 80),
+  turbo: () => tone(200, 0.6, 'sawtooth', 0, 0.05, 900),
+  flag: () => { [523, 659, 784, 659, 1047].forEach((f, i) => tone(f, 0.14, 'square', i * 0.1, 0.07)); }
+};
+
+/* =====================================================================
+   ESTADO
+   ===================================================================== */
+const KART_COLORS = ['#70AD47', '#e0435c', '#fbbf24', '#38bdf8'];
+const RIVALS = [
+  { name: 'Gini', color: '#a855f7', base: 432 },
+  { name: 'Stump', color: '#f97316', base: 450 },
+  { name: 'Bootstrap', color: '#ec4899', base: 466 }
+];
+const W = 960, H = 540, PY = 430, RW = 420, SC = 1.6, LEN = 24000;
+const MAXV = 480, TURBOV = 780, GRASSV = 230, STEER = 380;
+
+let kartColor = KART_COLORS[0];
+let mode = 'start', wi = 0, race = null, paused = false, lockQ = false, asked = null, order = [], correctPos = -1;
+let player = { first: '', last: '', key: '' };
+let score = 0, hits = 0, errors = 0, penalty = 0, coins = 0, places = [], fails = [], answered = 0;
+let last = 0, runT = 0, shake = 0;
+const keys = {};
+const canvas = $('#view'), ctx = canvas.getContext('2d');
+
+$('#rPen').textContent = CONFIG.DESCUENTO_ERROR;
+$('#rOk').textContent = CONFIG.PUNTOS_ACIERTO;
+$('#rBono').textContent = CONFIG.BONO_PUESTO.map((b, i) => (i + 1) + '.º +' + b).join(' · ');
+
+function show(id) { document.querySelectorAll('.screen').forEach(s => s.classList.toggle('active', s.id === id)); }
+
+/* =====================================================================
+   DIBUJO DEL KART (vista desde arriba, mirando hacia arriba)
+   ===================================================================== */
+function drawKart(c, x, y, color, rot, flame, label) {
+  c.save(); c.translate(x, y); if (rot) c.rotate(rot);
+  c.fillStyle = 'rgba(0,0,0,.25)'; c.beginPath(); c.ellipse(3, 4, 20, 28, 0, 0, 7); c.fill();
+  if (flame) {
+    const f = 10 + Math.random() * 12;
+    c.fillStyle = '#fb923c'; c.beginPath(); c.moveTo(-9, 24); c.lineTo(-4, 24 + f); c.lineTo(0, 24); c.lineTo(4, 24 + f); c.lineTo(9, 24); c.fill();
+    c.fillStyle = '#fde047'; c.beginPath(); c.moveTo(-5, 24); c.lineTo(0, 24 + f * 0.6); c.lineTo(5, 24); c.fill();
+  }
+  c.fillStyle = '#111827';
+  c.fillRect(-19, -20, 8, 13); c.fillRect(11, -20, 8, 13);
+  c.fillRect(-20, 8, 9, 15); c.fillRect(11, 8, 9, 15);
+  c.fillStyle = color; roundRect(c, -13, -24, 26, 48, 9); c.fill();
+  c.fillStyle = 'rgba(0,0,0,.25)'; roundRect(c, -15, -27, 30, 7, 3); c.fill();
+  c.fillStyle = 'rgba(255,255,255,.35)'; c.fillRect(-2, -22, 4, 16);
+  c.fillStyle = '#1f2937'; roundRect(c, -9, 14, 18, 8, 3); c.fill();
+  c.fillStyle = '#f8fafc'; c.beginPath(); c.arc(0, 4, 8.5, 0, 7); c.fill();
+  c.fillStyle = color; c.fillRect(-8.5, 2, 17, 3);
+  c.fillStyle = '#0f172a'; roundRect(c, -6, -4, 12, 5, 2); c.fill();
+  c.restore();
+  if (label) {
+    c.font = '700 13px Fredoka, Nunito, sans-serif'; c.textAlign = 'center';
+    c.fillStyle = 'rgba(15,23,42,.7)'; const w = c.measureText(label).width + 12;
+    roundRect(c, x - w / 2, y - 50, w, 18, 6); c.fill();
+    c.fillStyle = '#fff'; c.fillText(label, x, y - 37);
+  }
+}
+function roundRect(c, x, y, w, h, r) {
+  c.beginPath(); c.moveTo(x + r, y); c.arcTo(x + w, y, x + w, y + h, r); c.arcTo(x + w, y + h, x, y + h, r);
+  c.arcTo(x, y + h, x, y, r); c.arcTo(x, y, x + w, y, r); c.closePath();
+}
+
+$('#avatars').innerHTML = KART_COLORS.map((c, i) => '<button class="avatar" type="button" aria-pressed="' + (i === 0) + '" aria-label="Kart ' + (i + 1) + '" data-c="' + c + '"><canvas width="70" height="70"></canvas></button>').join('');
+document.querySelectorAll('.avatar').forEach(b => {
+  drawKart(b.querySelector('canvas').getContext('2d'), 35, 37, b.dataset.c, 0, false);
+  b.addEventListener('click', () => {
+    kartColor = b.dataset.c; SFX.beep();
+    document.querySelectorAll('.avatar').forEach(x => x.setAttribute('aria-pressed', x === b));
+  });
+});
+
+/* =====================================================================
+   PISTA
+   ===================================================================== */
+function rng(seed) { let s = seed; return () => (s = (s * 16807) % 2147483647) / 2147483647; }
+function cx(z) {
+  const p = race.ph;
+  const k = Math.min(1, Math.max(0, z / 1500));            // la salida es recta
+  return W / 2 + k * (140 * Math.sin(z / 1400 + p[0]) + 55 * Math.sin(z / 560 + p[1]) - 140 * Math.sin(p[0]) - 55 * Math.sin(p[1]));
+}
+
+function makeRace(i) {
+  const r = rng(1234 + i * 977);
+  race = { i, ph: [r() * 6, r() * 6], z: 0, x: W / 2, v: 0, turbo: 0, spin: 0, count: 3.6, done: false, flash: 0, msg: '', msgT: 0 };
+  const gates = [0.18, 0.40, 0.62, 0.84].map((f, n) => ({ z: Math.round(LEN * f), q: Q[i * 4 + n], n, used: false }));
+  const nearGate = z => gates.some(g => Math.abs(g.z - z) < 700);
+  const obs = [];
+  for (let z = 1800; z < LEN - 600; z += 950 + r() * 900) {
+    if (nearGate(z)) continue;
+    obs.push({ z, lane: Math.floor(r() * 3) - 1, type: r() < 0.6 ? 'cone' : 'oil', hit: false });
+    if (r() < 0.25) obs.push({ z: z + 40, lane: Math.floor(r() * 3) - 1, type: 'cone', hit: false });
+  }
+  const cns = [];
+  for (let z = 1200; z < LEN - 800; z += 1400 + r() * 900) {
+    const lane = Math.floor(r() * 3) - 1;
+    if (nearGate(z) || obs.some(o => Math.abs(o.z - z) < 500 && o.lane === lane)) continue;
+    for (let k = 0; k < 5; k++) cns.push({ z: z + k * 70, lane, got: false });
+  }
+  const trees = [];
+  for (let z = -400; z < LEN + 1200; z += 90 + r() * 120) {
+    const side = r() < 0.5 ? -1 : 1;
+    trees.push({ z, side, off: RW / 2 + 50 + r() * 170, s: 0.8 + r() * 0.6, hue: Math.floor(r() * 3) });
+  }
+  race.gates = gates; race.obs = obs; race.coins = cns; race.trees = trees;
+  race.rivals = RIVALS.map((rv, k) => ({ ...rv, z: 70 + k * 70, lane: [-1, 1, 0][k], v: 0, wob: r() * 6, done: false }));
+}
+
+/* =====================================================================
+   FLUJO DEL JUEGO
+   ===================================================================== */
+async function startGame() {
+  const first = $('#nameIn').value.trim(), lastName = $('#lastIn').value.trim();
+  const err = $('#nameErr');
+  if (!first) { err.textContent = 'Escribe tu nombre.'; $('#nameIn').focus(); SFX.bad(); return; }
+  const key = normKey(lastName);
+  if (key.length < 2) { err.textContent = 'Escribe tu apellido real, con letras.'; $('#lastIn').focus(); SFX.bad(); return; }
+
+  const loc = findLocal(key);
+  if (loc) { err.textContent = 'El apellido «' + lastName + '» ya jugó (registro: ' + loc.apellido + '). Solo se permite un intento.'; SFX.bad(); return; }
+
+  $('#btnStart').disabled = true; err.textContent = CONFIG.ENDPOINT ? 'Verificando registro…' : '';
+  const rem = await remote({ action: 'start', key, nombre: first, apellido: lastName });
+  $('#btnStart').disabled = false;
+  if (rem && rem.ok === false) {
+    err.textContent = 'El apellido «' + lastName + '» ya jugó' + (rem.match ? ' (registro: ' + rem.match + ')' : '') + '. Solo se permite un intento.';
+    SFX.bad(); return;
+  }
+  err.textContent = '';
+
+  // El intento se registra al empezar
+  const list = loadReg();
+  list.push({ key, nombre: first, apellido: lastName, inicio: new Date().toLocaleString(), estado: 'en curso', puntos: '', aciertos: '', errores: '' });
+  saveReg(list);
+
+  player = { first, last: lastName, key };
+  score = 0; hits = 0; errors = 0; penalty = 0; coins = 0; places = []; fails = []; answered = 0;
+  audio();
+  window.addEventListener('beforeunload', warnLeave);
+  openWorld(0);
+}
+function warnLeave(e) { if (mode === 'play' || mode === 'card') { e.preventDefault(); e.returnValue = ''; } }
+$('#btnStart').addEventListener('click', startGame);
+['#nameIn', '#lastIn'].forEach(s => $(s).addEventListener('keydown', e => { if (e.key === 'Enter') startGame(); }));
+
+function openWorld(i) {
+  wi = i; makeRace(i); paused = false; lockQ = false; asked = null;
+  $('#cvNum').textContent = 'CIRCUITO ' + (i + 1) + ' DE ' + WORLDS.length;
+  $('#cvName').textContent = WORLDS[i].name;
+  $('#cvDesc').textContent = WORLDS[i].desc;
+  $('#cvPrev').textContent = i > 0 ? 'Circuito anterior: ' + places[i - 1] + '.º puesto · ' + score + ' puntos' : '';
+  mode = 'card'; show('sCard'); SFX.flag();
+}
+$('#btnGo').addEventListener('click', () => { mode = 'play'; show('sPlay'); hud(); canvas.focus(); });
+
+function hud() {
+  $('#hName').textContent = player.first + ' ' + player.last;
+  $('#hWorld').textContent = WORLDS[wi].name;
+  $('#hScore').textContent = score;
+  $('#hHits').textContent = hits;
+  $('#hErr').textContent = errors;
+}
+function flashMsg(t) { race.msg = t; race.msgT = 1.4; }
+
+/* =====================================================================
+   SIMULACIÓN
+   ===================================================================== */
+function update(dt) {
+  runT += dt;
+  if (shake > 0) shake = Math.max(0, shake - dt);
+  if (race.msgT > 0) race.msgT -= dt;
+  if (paused || race.done) return;
+
+  if (race.count > 0) {
+    const before = Math.ceil(race.count - 0.6);
+    race.count -= dt;
+    const after = Math.ceil(race.count - 0.6);
+    if (after !== before) { if (after > 0) SFX.beep(); else SFX.go(); }
+    return;
+  }
+
+  // Jugador
+  const left = keys['ArrowLeft'] || keys['a'] || keys['A'];
+  const right = keys['ArrowRight'] || keys['d'] || keys['D'];
+  const c0 = cx(race.z);
+  const off = Math.abs(race.x - c0) > RW / 2 - 12;
+  if (race.turbo > 0) race.turbo -= dt;
+  if (race.spin > 0) {
+    race.spin -= dt; race.v *= Math.pow(0.25, dt);
+  } else {
+    if (left && !right) race.x -= STEER * dt;
+    if (right && !left) race.x += STEER * dt;
+    const top = race.turbo > 0 ? TURBOV : (off ? GRASSV : MAXV);
+    if (race.v < top) race.v = Math.min(top, race.v + 300 * dt);
+    else race.v = Math.max(top, race.v - 500 * dt);
+  }
+  race.x = Math.max(24, Math.min(W - 24, race.x));
+  race.z += race.v * dt;
+
+  // Rivales
+  race.rivals.forEach(rv => {
+    if (rv.done) { rv.z += 300 * dt; return; }
+    const gap = rv.z - race.z;
+    let target = rv.base * (gap > 1600 ? 0.93 : gap < -1600 ? 1.06 : 1);
+    if (rv.v < target) rv.v = Math.min(target, rv.v + 220 * dt); else rv.v = target;
+    rv.z += rv.v * dt;
+    if (rv.z >= LEN) rv.done = true;
+    // empujón si se tocan
+    const sy = PY - (rv.z - race.z) / SC, sx = rivalX(rv);
+    if (Math.abs(sy - PY) < 46 && Math.abs(sx - race.x) < 34) {
+      race.x += (race.x < sx ? -1 : 1) * 120 * dt * 4; race.v *= 0.97;
+    }
+  });
+
+  // Obstáculos
+  race.obs.forEach(o => {
+    if (o.hit) return;
+    const sy = PY - (o.z - race.z) / SC, sx = cx(o.z) + o.lane * RW / 3;
+    if (Math.abs(sy - PY) < 28 && Math.abs(sx - race.x) < (o.type === 'oil' ? 34 : 26)) {
+      o.hit = true;
+      if (race.turbo <= 0 && race.spin <= 0) { race.spin = 0.9; shake = 0.25; SFX.bump(); flashMsg(o.type === 'oil' ? '¡Aceite!' : '¡Cono!'); }
+    }
+  });
+
+  // Monedas
+  race.coins.forEach(c => {
+    if (c.got) return;
+    const sy = PY - (c.z - race.z) / SC, sx = cx(c.z) + c.lane * RW / 3;
+    if (Math.abs(sy - PY) < 26 && Math.abs(sx - race.x) < 28) {
+      c.got = true; coins++; score += CONFIG.PUNTOS_MONEDA; SFX.coin(); hud();
+    }
+  });
+
+  // Arcos de pregunta
+  for (const g of race.gates) {
+    if (!g.used && race.z >= g.z) { g.used = true; SFX.box(); openQuestion(g); return; }
+  }
+
+  // Meta
+  if (race.z >= LEN) finishCircuit();
+}
+function rivalX(rv) { return cx(rv.z) + rv.lane * RW / 3.6 + Math.sin(runT * 0.8 + rv.wob) * 26; }
+function position() { return 1 + race.rivals.filter(rv => rv.z > race.z).length; }
+
+/* =====================================================================
+   PREGUNTAS
+   ===================================================================== */
+function openQuestion(g) {
+  paused = true; lockQ = true; asked = g;
+  order = [0, 1, 2, 3];
+  for (let i = 3; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [order[i], order[j]] = [order[j], order[i]]; }
+  correctPos = order.indexOf(g.q.a);
+  $('#mKicker').textContent = 'Pregunta ' + (wi * 4 + g.n + 1) + ' de ' + Q.length + ' · ' + WORLDS[wi].name;
+  $('#mHead').textContent = g.q.q;
+  $('#opts').innerHTML = order.map((oi, p) => '<button class="opt o' + p + '" data-p="' + p + '"><span class="key">' + (p + 1) + '</span>' + g.q.o[oi] + '</button>').join('');
+  document.querySelectorAll('.opt').forEach(btn => btn.addEventListener('click', () => answer(+btn.dataset.p)));
+  $('#mWhyBox').style.display = 'none';
+  $('#btnNext').style.display = 'none';
+  $('#modal').classList.add('show');
+  const first = document.querySelector('.opt'); if (first) first.focus();
+}
+function answer(p) {
+  if (!lockQ || $('#btnNext').style.display === 'block') return;
+  const ok = p === correctPos;
+  answered++;
+  document.querySelectorAll('.opt').forEach(btn => {
+    const bp = +btn.dataset.p; btn.disabled = true;
+    if (bp === correctPos) btn.classList.add('right');
+    else if (bp === p) btn.classList.add('wrong');
+    else btn.classList.add('dim');
+  });
+  $('#mWhyBox').style.display = 'block';
+  $('#btnNext').style.display = 'block';
+  if (ok) {
+    hits++; score += CONFIG.PUNTOS_ACIERTO; SFX.ok();
+    $('#mWhyTitle').textContent = 'Correcto: +' + CONFIG.PUNTOS_ACIERTO + ' puntos y turbo.';
+    $('#mWhyTitle').style.color = 'var(--green)';
+    $('#mWhy').textContent = asked.q.why;
+    $('#btnNext').textContent = 'Activar el turbo';
+    race.turbo = 2.6;
+  } else {
+    errors++;
+    score -= CONFIG.DESCUENTO_ERROR; penalty += CONFIG.DESCUENTO_ERROR; SFX.bad(); shake = 0.3;
+    fails.push({ q: asked.q.q, a: asked.q.o[asked.q.a], your: asked.q.o[order[p]] });
+    $('#mWhyTitle').textContent = 'Incorrecto: −' + CONFIG.DESCUENTO_ERROR + ' puntos.';
+    $('#mWhyTitle').style.color = 'var(--red)';
+    $('#mWhy').innerHTML = '<b>La correcta era:</b> ' + asked.q.o[asked.q.a] + '<br><span class="muted">' + asked.q.why + '</span>';
+    $('#btnNext').textContent = 'Seguir corriendo';
+    race.spin = 1.0;
+  }
+  hud();
+  $('#btnNext').focus();
+}
+function closeQ() {
+  if (!$('#modal').classList.contains('show') || $('#btnNext').style.display !== 'block') return;
+  $('#modal').classList.remove('show');
+  paused = false; lockQ = false;
+  if (race.turbo > 0) { SFX.turbo(); flashMsg('¡Turbo!'); } else flashMsg('¡Trompo!');
+  canvas.focus();
+}
+$('#btnNext').addEventListener('click', closeQ);
+
+/* =====================================================================
+   FIN DE CIRCUITO Y FIN DEL JUEGO
+   ===================================================================== */
+function finishCircuit() {
+  race.done = true;
+  const pos = position();
+  places.push(pos);
+  const bono = CONFIG.BONO_PUESTO[pos - 1] || 0;
+  score += bono; hud(); SFX.flag();
+  flashMsg(pos + '.º puesto · +' + bono);
+  race.msgT = 2.2;
+  setTimeout(() => { if (wi < WORLDS.length - 1) openWorld(wi + 1); else endGame(); }, 2000);
+}
+async function endGame() {
+  mode = 'end'; paused = true;
+  window.removeEventListener('beforeunload', warnLeave);
+  $('#eTitle').textContent = '¡Llegaste, ' + player.first + '!';
+  $('#eSub').textContent = player.first + ' ' + player.last + ' · ' + new Date().toLocaleString();
+  $('#eScore').textContent = score;
+  $('#eHits').textContent = hits + '/' + Q.length;
+  $('#eErr').textContent = errors;
+  $('#ePen').textContent = '−' + penalty;
+  $('#ePlaces').textContent = places.map(p => p + '.º').join(' ');
+  $('#eReview').innerHTML = fails.length
+    ? '<p class="fred" style="margin:0">Para repasar</p><ul class="review" style="padding:0">' + fails.map(f => '<li><b>' + f.q + '</b><br><span style="color:var(--green)">Correcta: ' + f.a + '</span><br><span class="muted">Elegiste: ' + f.your + '</span></li>').join('') + '</ul>'
+    : '<p class="fred" style="color:var(--green);margin:0">Respondiste bien las ' + Q.length + ' preguntas.</p>';
+  show('sEnd');
+
+  const list = loadReg();
+  const row = list.find(r => r.key === player.key);
+  if (row) Object.assign(row, { estado: 'terminado', puntos: score, aciertos: hits, errores: errors, puestos: places.join('-'), fin: new Date().toLocaleString() });
+  saveReg(list);
+  await remote({ action: 'end', key: player.key, puntos: score, aciertos: hits, errores: errors, descuento: penalty, monedas: coins, puestos: places.join('-') });
+}
+$('#btnCopy').addEventListener('click', async () => {
+  const t = player.first + ' ' + player.last + ' · Gran Premio del Bosque · ' + score + ' pts · aciertos ' + hits + '/' + Q.length + ' · errores ' + errors + ' (−' + penalty + ') · puestos ' + places.join('-');
+  try { await navigator.clipboard.writeText(t); } catch (e) {
+    const ta = document.createElement('textarea'); ta.value = t; document.body.appendChild(ta); ta.select();
+    try { document.execCommand('copy'); } catch (_) {} ta.remove();
+  }
+  const to = $('#toast'); to.style.display = 'block'; setTimeout(() => to.style.display = 'none', 1600);
+});
+$('#btnMute').addEventListener('click', () => { muted = !muted; $('#btnMute').textContent = muted ? 'Silencio' : 'Sonido'; });
+
+/* =====================================================================
+   PANEL DOCENTE
+   ===================================================================== */
+function esc(s) { return String(s == null ? '' : s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c])); }
+function renderTeacher() {
+  const list = loadReg();
+  $('#tInfo').textContent = (CONFIG.ENDPOINT ? 'Los resultados también se guardan en la hoja de Google. ' : '') +
+    'Registro de este equipo y navegador: ' + list.length + ' intento(s). «Desbloquear» permite que ese apellido vuelva a jugar aquí.';
+  $('#tTable').innerHTML = list.length ? '<table class="reg"><thead><tr><th>Apellido</th><th>Nombre</th><th>Estado</th><th>Puntos</th><th>Aciertos</th><th>Errores</th><th></th></tr></thead><tbody>' +
+    list.map((r, i) => '<tr><td>' + esc(r.apellido) + '</td><td>' + esc(r.nombre) + '</td><td>' + esc(r.estado) + '</td><td>' + esc(r.puntos) + '</td><td>' + esc(r.aciertos) + '</td><td>' + esc(r.errores) + '</td><td><button class="btn btn-red" data-del="' + i + '" type="button">Desbloquear</button></td></tr>').join('') +
+    '</tbody></table>' : '<p class="muted">Todavía no hay intentos registrados en este equipo.</p>';
+  document.querySelectorAll('[data-del]').forEach(b => b.addEventListener('click', () => {
+    const l = loadReg(); l.splice(+b.dataset.del, 1); saveReg(l); renderTeacher();
+  }));
+}
+$('#btnTeacher').addEventListener('click', () => {
+  $('#tLock').style.display = 'block'; $('#tBody').style.display = 'none';
+  $('#pinIn').value = ''; $('#pinErr').textContent = '';
+  $('#tModal').classList.add('show'); $('#pinIn').focus();
+});
+function tryPin() {
+  if ($('#pinIn').value === CONFIG.PIN_DOCENTE) { $('#tLock').style.display = 'none'; $('#tBody').style.display = 'block'; renderTeacher(); }
+  else $('#pinErr').textContent = 'PIN incorrecto.';
+}
+$('#btnPin').addEventListener('click', tryPin);
+$('#pinIn').addEventListener('keydown', e => { if (e.key === 'Enter') tryPin(); });
+document.querySelectorAll('.tClose').forEach(b => b.addEventListener('click', () => $('#tModal').classList.remove('show')));
+$('#btnWipe').addEventListener('click', () => { saveReg([]); renderTeacher(); });
+$('#btnCsv').addEventListener('click', () => {
+  const cols = ['apellido', 'nombre', 'inicio', 'fin', 'estado', 'puntos', 'aciertos', 'errores', 'puestos'];
+  const csv = [cols.join(',')].concat(loadReg().map(r => cols.map(c => '"' + String(r[c] == null ? '' : r[c]).replace(/"/g, '""') + '"').join(','))).join('\n');
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob(['﻿' + csv], { type: 'text/csv' }));
+  a.download = 'gran_premio_resultados.csv'; a.click();
+});
+
+/* =====================================================================
+   CONTROLES
+   ===================================================================== */
+document.addEventListener('keydown', e => {
+  if ($('#tModal').classList.contains('show')) return;
+  if ($('#modal').classList.contains('show')) {
+    if (['1', '2', '3', '4'].includes(e.key)) answer(+e.key - 1);
+    if (e.key === 'Enter') { e.preventDefault(); closeQ(); }
+    return;
+  }
+  if (mode === 'play' && ['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', ' '].includes(e.key)) e.preventDefault();
+  keys[e.key] = true;
+});
+document.addEventListener('keyup', e => { keys[e.key] = false; });
+function hold(id, k) {
+  const el = $(id);
+  el.addEventListener('pointerdown', ev => { ev.preventDefault(); keys[k] = true; });
+  ['pointerup', 'pointerleave', 'pointercancel'].forEach(t => el.addEventListener(t, () => { keys[k] = false; }));
+}
+hold('#bLeft', 'ArrowLeft'); hold('#bRight', 'ArrowRight');
+
+/* =====================================================================
+   RENDER
+   ===================================================================== */
+function drawTree(x, y, s, hue) {
+  const cols = [['#1f5f2c', '#2f7a3a'], ['#2d6a1f', '#4a8c2a'], ['#174d33', '#2b6e4b']][hue];
+  ctx.fillStyle = 'rgba(0,0,0,.22)'; ctx.beginPath(); ctx.ellipse(x + 6 * s, y + 8 * s, 22 * s, 14 * s, 0, 0, 7); ctx.fill();
+  ctx.fillStyle = cols[0]; ctx.beginPath(); ctx.arc(x, y, 22 * s, 0, 7); ctx.fill();
+  ctx.fillStyle = cols[1]; ctx.beginPath(); ctx.arc(x - 6 * s, y - 6 * s, 13 * s, 0, 7); ctx.fill();
+}
+function drawGate(g, sy) {
+  const c = cx(g.z);
+  ctx.fillStyle = 'rgba(0,0,0,.25)'; ctx.fillRect(c - RW / 2 - 8, sy + 6, RW + 16, 10);
+  ctx.fillStyle = '#385723'; ctx.fillRect(c - RW / 2 - 14, sy - 12, 14, 24); ctx.fillRect(c + RW / 2, sy - 12, 14, 24);
+  ctx.fillStyle = g.used ? 'rgba(56,87,35,.5)' : '#385723'; ctx.fillRect(c - RW / 2, sy - 5, RW, 10);
+  if (g.used) return;
+  for (let k = -1; k <= 1; k++) {
+    const bx = c + k * RW / 3, bob = Math.sin(runT * 4 + k) * 3;
+    ctx.save(); ctx.translate(bx, sy - 22 + bob); ctx.rotate(Math.sin(runT * 2 + k) * 0.15);
+    ctx.fillStyle = '#C5E0B4'; roundRect(ctx, -18, -18, 36, 36, 6); ctx.fill();
+    ctx.strokeStyle = '#385723'; ctx.lineWidth = 3; ctx.stroke();
+    ctx.fillStyle = '#1c3314'; ctx.font = '700 24px Fredoka, Nunito, sans-serif'; ctx.textAlign = 'center'; ctx.fillText('?', 0, 9);
+    ctx.restore();
+  }
+}
+function draw() {
+  const sx0 = shake ? (Math.random() - 0.5) * 10 : 0;
+  ctx.setTransform(1, 0, 0, 1, sx0, 0);
+  const z0 = race.z;
+  // Césped, pista, bordillos y carriles
+  for (let y = 0; y < H; y += 4) {
+    const z = z0 + (PY - y) * SC, c = cx(z);
+    ctx.fillStyle = Math.floor(z / 160) % 2 ? '#5a9a3c' : '#62a442'; ctx.fillRect(-10, y, W + 20, 4);
+    ctx.fillStyle = Math.floor(z / 160) % 2 ? '#5b616b' : '#626873'; ctx.fillRect(c - RW / 2, y, RW, 4);
+    ctx.fillStyle = Math.floor(z / 70) % 2 ? '#e0435c' : '#f8fafc';
+    ctx.fillRect(c - RW / 2 - 14, y, 14, 4); ctx.fillRect(c + RW / 2, y, 14, 4);
+    if (Math.floor(z / 90) % 2 === 0) { ctx.fillStyle = 'rgba(255,255,255,.55)'; ctx.fillRect(c - RW / 6 - 2, y, 4, 4); ctx.fillRect(c + RW / 6 - 2, y, 4, 4); }
+    if ((z >= 0 && z < 50) || (z >= LEN && z < LEN + 50)) {
+      for (let k = 0; k < RW; k += 20) { ctx.fillStyle = (Math.floor(k / 20) + Math.floor(z / 12)) % 2 ? '#111' : '#fff'; ctx.fillRect(c - RW / 2 + k, y, 20, 4); }
+    }
+  }
+  const toY = z => PY - (z - z0) / SC;
+  const vis = y => y > -60 && y < H + 60;
+  // Árboles
+  race.trees.forEach(t => { const y = toY(t.z); if (vis(y)) drawTree(cx(t.z) + t.side * t.off, y, t.s, t.hue); });
+  // Monedas
+  race.coins.forEach(c => {
+    if (c.got) return; const y = toY(c.z); if (!vis(y)) return;
+    const x = cx(c.z) + c.lane * RW / 3, w = 4 + Math.abs(Math.sin(runT * 5 + c.z)) * 7;
+    ctx.fillStyle = '#facc15'; ctx.beginPath(); ctx.ellipse(x, y, w, 11, 0, 0, 7); ctx.fill();
+    ctx.strokeStyle = '#a16207'; ctx.lineWidth = 2; ctx.stroke();
+  });
+  // Obstáculos
+  race.obs.forEach(o => {
+    const y = toY(o.z); if (!vis(y)) return;
+    const x = cx(o.z) + o.lane * RW / 3;
+    if (o.type === 'oil') {
+      ctx.fillStyle = 'rgba(17,24,39,.85)'; ctx.beginPath(); ctx.ellipse(x, y, 30, 16, 0.3, 0, 7); ctx.fill();
+      ctx.fillStyle = 'rgba(99,102,241,.35)'; ctx.beginPath(); ctx.ellipse(x - 8, y - 4, 10, 4, 0.3, 0, 7); ctx.fill();
+    } else if (!o.hit) {
+      ctx.fillStyle = 'rgba(0,0,0,.25)'; ctx.beginPath(); ctx.ellipse(x + 4, y + 6, 14, 8, 0, 0, 7); ctx.fill();
+      ctx.fillStyle = '#f97316'; ctx.beginPath(); ctx.moveTo(x, y - 18); ctx.lineTo(x + 13, y + 10); ctx.lineTo(x - 13, y + 10); ctx.fill();
+      ctx.fillStyle = '#fff'; ctx.fillRect(x - 7, y - 3, 14, 4);
+    }
+  });
+  // Arcos
+  race.gates.forEach(g => { const y = toY(g.z); if (vis(y)) drawGate(g, y); });
+  // Rivales
+  race.rivals.forEach(rv => { const y = toY(rv.z); if (vis(y)) drawKart(ctx, rivalX(rv), y, rv.color, 0, false, rv.name); });
+  // Jugador
+  const rot = race.spin > 0 ? (1 - race.spin) * Math.PI * 4 : ((keys['ArrowLeft'] || keys['a'] ? -0.12 : 0) + (keys['ArrowRight'] || keys['d'] ? 0.12 : 0));
+  drawKart(ctx, race.x, PY, kartColor, rot, race.turbo > 0, player.first);
+
+  // Panel: puesto y progreso
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.fillStyle = 'rgba(15,23,42,.78)'; roundRect(ctx, 16, 16, 120, 70, 14); ctx.fill();
+  ctx.fillStyle = '#fbbf24'; ctx.font = '700 44px Fredoka, Nunito, sans-serif'; ctx.textAlign = 'left';
+  ctx.fillText(position() + '.º', 30, 66);
+  ctx.fillStyle = '#e8ecff'; ctx.font = '700 15px Fredoka, Nunito, sans-serif'; ctx.fillText('de 4', 88, 66);
+
+  const bx = 160, bw = 560, by = 30;
+  ctx.fillStyle = 'rgba(15,23,42,.78)'; roundRect(ctx, bx - 14, 16, bw + 28, 40, 12); ctx.fill();
+  ctx.fillStyle = '#334155'; roundRect(ctx, bx, by + 6, bw, 8, 4); ctx.fill();
+  race.gates.forEach(g => { ctx.fillStyle = g.used ? '#385723' : '#C5E0B4'; ctx.fillRect(bx + bw * g.z / LEN - 2, by + 2, 4, 16); });
+  race.rivals.forEach(rv => { ctx.fillStyle = rv.color; ctx.beginPath(); ctx.arc(bx + bw * Math.min(1, rv.z / LEN), by + 10, 6, 0, 7); ctx.fill(); });
+  ctx.fillStyle = kartColor; ctx.strokeStyle = '#fff'; ctx.lineWidth = 2.5;
+  ctx.beginPath(); ctx.arc(bx + bw * Math.min(1, race.z / LEN), by + 10, 8, 0, 7); ctx.fill(); ctx.stroke();
+
+  ctx.fillStyle = 'rgba(15,23,42,.78)'; roundRect(ctx, W - 210, 16, 194, 40, 12); ctx.fill();
+  ctx.fillStyle = race.turbo > 0 ? '#fb923c' : '#e8ecff'; ctx.font = '700 18px Fredoka, Nunito, sans-serif'; ctx.textAlign = 'right';
+  ctx.fillText(Math.round(race.v / 4) + ' km/h' + (race.turbo > 0 ? ' · TURBO' : ''), W - 30, 42);
+
+  // Mensajes
+  if (race.count > 0) {
+    const n = Math.ceil(race.count - 0.6);
+    ctx.fillStyle = 'rgba(15,23,42,.55)'; ctx.fillRect(0, 0, W, H);
+    ctx.fillStyle = n > 0 ? '#fbbf24' : '#A9D18E'; ctx.font = '700 120px Fredoka, Nunito, sans-serif'; ctx.textAlign = 'center';
+    ctx.fillText(n > 0 ? n : '¡Ya!', W / 2, H / 2 + 40);
+    ctx.font = '700 22px Fredoka, Nunito, sans-serif'; ctx.fillStyle = '#fff';
+    ctx.fillText('Gira con ← → · Pasa por los arcos ?', W / 2, H / 2 + 100);
+  } else if (race.msgT > 0) {
+    ctx.globalAlpha = Math.min(1, race.msgT * 2);
+    ctx.fillStyle = 'rgba(15,23,42,.7)'; roundRect(ctx, W / 2 - 170, 120, 340, 64, 16); ctx.fill();
+    ctx.fillStyle = '#fbbf24'; ctx.font = '700 34px Fredoka, Nunito, sans-serif'; ctx.textAlign = 'center';
+    ctx.fillText(race.msg, W / 2, 164); ctx.globalAlpha = 1;
+  }
+}
+
+function frame(now) {
+  const dt = Math.min(0.034, (now - last) / 1000 || 0);
+  last = now;
+  if (mode === 'play' && race) { update(dt); draw(); }
+  requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
+</script>
+</body>
+</html>
